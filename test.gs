@@ -3,6 +3,32 @@ const url = "https://en.wikipedia.org/wiki/List_of_countries_and_dependencies_by
 
 const scratchSsId = '1b6i5PEZ2IYStML3r9161u1dXioylYCp1stWvwB7k1qo'
 
+
+const pdfMarginsPayload = {
+  variables: {
+    url,
+    "options": {
+      "paperFormat": "letter",
+      "landscape": true,
+      "pdfMargin": {
+        "top": 6,
+        "bottom": 6,
+        "left": 10,
+        "right": 10
+      }
+    }
+  },
+  query: `
+    query ($options: PdfOptionsInput, $url: URL!) {
+      page(url: $url) {
+        pdf(options: $options ) {
+          base64Bytes
+          mimeType
+        }
+      }
+    }`
+}
+
 const rateLimitPayload = {
   variables: {
     url,
@@ -15,6 +41,22 @@ const rateLimitPayload = {
     }
   `
 }
+const briefScreenshotPayload = {
+  variables: {
+    url,
+  },
+  query: `
+    query ($url: URL!) {
+      page (url: $url) {
+        url { href }
+        screenshot {
+          mimeType
+          base64Bytes
+        }
+      }
+    }`,
+};
+
 const screenshotPayload = {
   variables: {
     url,
@@ -95,7 +137,6 @@ const evalPayload = {
         const elements = document.querySelectorAll (selector)
         return Array.from(elements)
           .map (element=>({
-            id: element.id,
             src: element.src
           }))
         }
@@ -108,8 +149,6 @@ const evalPayload = {
       page (url: $url) {
         url { href }
         eval (code: $code, arg: $arg) {
-          arg
-          code
           result
         }
       }
@@ -140,11 +179,16 @@ const tablesPayload = {
 }
 
 const testRateLimit = () => {
-  const loop = 10
-  for(let i = 0 ; i < loop ; i++) {
+  const loop = 20
+  for (let i = 0; i < loop; i++) {
     const { url } = test({ payload: rateLimitPayload })
-    console.log (url)
+    console.log(url)
   }
+}
+
+const testBriefScreenshot = () => {
+  const { url, screenshot } = test({ payload: briefScreenshotPayload, prop: 'screenshot' })
+  return toDrive("brief screenshot", url.href, screenshot)
 }
 
 const testScreenshot = () => {
@@ -164,34 +208,39 @@ const testEval = () => {
 
 const testTables = () => {
   const { tables, url } = test({ payload: tablesPayload, prop: 'tables' })
-   console.log(tables)
-   toSheet ({url, tables, id: scratchSsId})
+  console.log(tables)
+  toSheet({ url, tables, id: scratchSsId })
 }
 
-const toSheet = ({url, tables, id}) => {
+const toSheet = ({ url, tables, id }) => {
 
   const ss = SpreadsheetApp.openById(id)
-  return tables.tables.map ((table,i)=> {
+  return tables.tables.map((table, i) => {
     const name = `${cleanerName(url.href)}-${i}`
-    const sheet = ss.getSheetByName(name) || 
+    const sheet = ss.getSheetByName(name) ||
       ss.insertSheet().setName(name)
     sheet.clearContents()
     const values = table.headers.concat(table.rows)
-    const maxWidth = values.reduce ((p,c)=>Math.max(p,c.length),0)
-    const paddedValues = values.map (
-      v=>v.concat(Array.from({length: maxWidth - v.length}))
+    const maxWidth = values.reduce((p, c) => Math.max(p, c.length), 0)
+    const paddedValues = values.map(
+      v => v.concat(Array.from({ length: maxWidth - v.length }))
     )
     sheet
-      .getRange (1,1)
-      .offset(0,0,paddedValues.length,maxWidth)
+      .getRange(1, 1)
+      .offset(0, 0, paddedValues.length, maxWidth)
       .setValues(paddedValues)
-    return sheet    
+    return sheet
   })
 
 }
 const testPdf = () => {
-  const { pdf, url } = test({ payload: pdfPayload, prop: 'pdf' })
-  return toDrive("pdf", url.href, pdf)
+  const { pdf } = test({ payload: pdfPayload, prop: 'pdf' })
+  return toDrive("pdf", url, pdf)
+}
+
+const testPdfMargins = () => {
+  const { pdf } = test({ payload: pdfMarginsPayload, prop: 'pdf' })
+  return toDrive("pdf-with-margins", "margins-"+ url, pdf)
 }
 
 const test = ({ payload, prop }) => {
@@ -208,7 +257,8 @@ const test = ({ payload, prop }) => {
     payload: JSON.stringify(payload),
     contentType: "application/json",
     muteHttpExceptions: true,
-    headers
+    headers,
+    method: "POST"
   })
 
   // check we got some data
@@ -228,8 +278,8 @@ const checkResponse = (response) => {
   const code = response.getResponseCode()
   if (code !== 200) {
     if (code === 429) {
-      console.log ('rate limit exceeeded')
-      console.log (response.getHeaders())
+      console.log('rate limit exceeeded')
+      console.log(response.getHeaders())
     }
     throw 'failed:' + response.getContentText()
   }
@@ -260,9 +310,9 @@ const testAll = () => {
 
 
 // utils
-const toDrive = (prop, url , data) => {
-  const file = DriveApp.createFile (blobber (cleanerName(url), data))
-  console.log ('wrote',prop,'to',file.getName())
+const toDrive = (prop, url, data) => {
+  const file = DriveApp.createFile(blobber(cleanerName(url), data))
+  console.log('wrote', prop, 'to', file.getName())
 }
 const isUndefined = (value) => typeof value === typeof undefined
 const isNull = (value) => value === null
